@@ -84,9 +84,8 @@ class ContestCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         problems_data = validated_data.pop('problems', [])
-        request = self.context['request']
         with transaction.atomic():
-            contest = Contest.objects.create(created_by=request.user, **validated_data)
+            contest = Contest.objects.create(**validated_data)
             for idx, item in enumerate(problems_data):
                 try:
                     problem = Problem.objects.get(pk=item['problem_id'])

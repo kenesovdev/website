@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 
 import { getApiBaseUrl } from '../utils/apiUrl';
+import { setStoredRefreshToken } from './tokenStorage';
 
 const api = axios.create({
   baseURL: `${getApiBaseUrl()}/api/v1`,
@@ -30,7 +31,13 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const refreshToken = response.data?.refresh_token;
+    if (typeof refreshToken === 'string') {
+      setStoredRefreshToken(refreshToken);
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     const original = error.config as RetryConfig | undefined;
     if (
@@ -67,7 +74,7 @@ api.interceptors.response.use(
     try {
       const { data } = await refreshToken();
       const { user } = useAuthStore.getState();
-      useAuthStore.getState().setAuth(data.access_token, user!);
+      useAuthStore.getState().setAuth(data.access_token, user!, data.refresh_token);
       queue.forEach((cb) => cb(data.access_token));
       queue = [];
       return api({

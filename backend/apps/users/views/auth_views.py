@@ -55,6 +55,7 @@ class LoginView(APIView):
 
         response = Response({
             'access_token': access_token,
+            'refresh_token': rt_str,
             'user': {
                 'id': str(user.id),
                 'email': user.email,
@@ -70,7 +71,7 @@ class RefreshView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        rt = request.COOKIES.get('refresh_token')
+        rt = request.COOKIES.get('refresh_token') or request.data.get('refresh')
         if not rt:
             return Response({'detail': 'Refresh token missing.'}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -103,7 +104,10 @@ class RefreshView(APIView):
             ip_address=get_client_ip(request),
         )
 
-        response = Response({'access_token': new_access})
+        response = Response({
+            'access_token': new_access,
+            'refresh_token': new_rt,
+        })
         response.set_cookie('refresh_token', new_rt, **COOKIE_SETTINGS)
         return response
 
@@ -112,7 +116,7 @@ class LogoutView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        rt = request.COOKIES.get('refresh_token')
+        rt = request.COOKIES.get('refresh_token') or request.data.get('refresh')
         if rt:
             payload = decode_refresh_token(rt)
             if payload is not None:

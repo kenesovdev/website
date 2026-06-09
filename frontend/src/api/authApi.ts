@@ -1,5 +1,6 @@
 import api from './axios';
 import type { AuthResponse, User } from '../types/auth';
+import { getStoredRefreshToken } from './tokenStorage';
 
 export const register = (d: { email: string; handle: string; password: string; password_confirm: string }) =>
   api.post('/auth/register/', d);
@@ -7,8 +8,17 @@ export const register = (d: { email: string; handle: string; password: string; p
 export const login = (d: { email: string; password: string }) =>
   api.post<AuthResponse>('/auth/login/', d);
 
-export const logout = () => api.post('/auth/logout/');
+export const logout = () => {
+  const refresh = getStoredRefreshToken();
+  return api.post('/auth/logout/', refresh ? { refresh } : {});
+};
 
-export const refreshToken = () => api.post<{ access_token: string }>('/auth/refresh/');
+export const refreshToken = () => {
+  const refresh = getStoredRefreshToken();
+  return api.post<{ access_token: string; refresh_token?: string }>(
+    '/auth/refresh/',
+    refresh ? { refresh } : {},
+  );
+};
 
 export const getMe = () => api.get<User>('/users/me/');
