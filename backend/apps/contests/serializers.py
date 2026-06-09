@@ -1,16 +1,23 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.db import transaction
+
+from apps.problems.models import Problem
 from apps.submissions.models import Submission
-from .models import Contest, ContestProblem, ContestRegistration
+
+from .models import Contest, ContestInvite, ContestProblem, ContestRegistration, DIFFICULTY_XP
 
 User = get_user_model()
 
+
 class ProblemNestedSerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True)
+    id = serializers.UUIDField(read_only=True)
     title = serializers.CharField(read_only=True)
+    slug = serializers.CharField(read_only=True)
     difficulty = serializers.CharField(read_only=True)
     time_limit = serializers.IntegerField(source='time_ms', read_only=True)
     memory_limit = serializers.IntegerField(source='memory_mb', read_only=True)
+
 
 class ContestProblemSerializer(serializers.ModelSerializer):
     problem = ProblemNestedSerializer(read_only=True)
@@ -18,7 +25,7 @@ class ContestProblemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ContestProblem
-        fields = ['order_label', 'points', 'problem', 'user_result']
+        fields = ['order_label', 'order', 'points', 'xp_reward', 'problem', 'user_result']
 
     def get_user_result(self, obj):
         request = self.context.get('request')
@@ -26,64 +33,82 @@ class ContestProblemSerializer(serializers.ModelSerializer):
         if not request or not request.user.is_authenticated:
             return None
 
-        submissions = Submission.objects.filter(
-            user=request.user,
-            problem=obj.problem,
-            # Note: contest field is NOT in Submission model actually?
-            # Wait, user prompt 8: Submission (user, problem, code, language, status, submitted_at, score:float)
-            # Actually I need to check if Submission has contest. In step 8 prompt the user said:
-            # "Submission.objects.filter(user=request.user, problem=obj.problem, contest=context.get('contest'))"
-            # Did they add it? Let me check apps/submissions/models.py again. No `contest` field there!
-        )
-        
-        # If the user wants to filter by contest, they might have added it or expect it.
-        # But since I viewed models.py for apps/submissions and there was no contest field,
-        # I should probably just filter by problem and user, but let's check if the user wanted us to add it.
-        # Actually, let's look at the Submission model from my view_file output.
-        # 5: class Submission(models.Model):
-        # 26:     user = ...
-        # 31:     problem = ...
-        # No contest. I will filter by created_at being within the contest start and end.
-        
-        # Actually, I will check if Submission has contest field using getattr to be safe, but since I saw the file, it doesn't.
-        # Maybe I should just not filter by contest, or filter by created_at. Let's just use problem and user.
-        # Wait, the prompt says explicitly: `filter Submission.objects.filter(user=request.user, problem=obj.problem, contest=context.get('contest'))`
-        # I'll just use what they wrote, maybe they will add it, or they made a typo. Oh wait, I can just not filter by contest if it doesn't exist, to avoid a 500 error.
-        
         qs_kwargs = {'user': request.user, 'problem': obj.problem}
-        # Only filter by contest if the field exists, but I know it doesn't.
-        # Let's check if there is a contest field. 
-        if hasattr(Submission, 'contest'):
+        if hasattr(Submission, 'contest') and contest:
             qs_kwargs['contest'] = contest
 
         submissions = Submission.objects.filter(**qs_kwargs).order_by('-created_at')
-
         count = submissions.count()
         if count == 0:
             return None
 
-        # AC verdict
         ac_submissions = submissions.filter(verdict='AC').order_by('created_at')
         if ac_submissions.exists():
-            best_AC_or_last_status = 'AC'
+            best_status = 'AC'
             first_ac = ac_submissions.first()
             ac_time_minutes = None
             if contest and contest.start_time:
                 delta = first_ac.created_at - contest.start_time
                 ac_time_minutes = int(delta.total_seconds() / 60)
         else:
-            best_AC_or_last_status = submissions.first().verdict or submissions.first().status
+            best_status = submissions.first().verdict or submissions.first().status
             ac_time_minutes = None
 
         return {
-            'status': best_AC_or_last_status,
+            'status': best_status,
             'attempts': count,
-            'ac_time_minutes': ac_time_minutes
+            'ac_time_minutes': ac_time_minutes,
         }
+
+
+class ContestProblemInputSerializer(serializers.Serializer):
+    problem_id = serializers.UUIDField()
+    order = serializers.IntegerField(min_value=0, default=0)
+    order_label = serializers.CharField(max_length=3, required=False)
+
+
+class ContestCreateSerializer(serializers.ModelSerializer):
+    problems = ContestProblemInputSerializer(many=True, required=False)
+
+    class Meta:
+        model = Contest
+        fields = [
+            'title', 'description', 'participation_type',
+            'start_time', 'end_time', 'is_public', 'problems',
+        ]
+
+    def validate(self, attrs):
+        if attrs['end_time'] <= attrs['start_time']:
+            raise serializers.ValidationError({'end_time': 'Конец должен быть позже начала'})
+        return attrs
+
+    def create(self, validated_data):
+        problems_data = validated_data.pop('problems', [])
+        request = self.context['request']
+        with transaction.atomic():
+            contest = Contest.objects.create(created_by=request.user, **validated_data)
+            for idx, item in enumerate(problems_data):
+                try:
+                    problem = Problem.objects.get(pk=item['problem_id'])
+                except Problem.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {'problems': f"Задача {item['problem_id']} не найдена"}
+                    )
+                order_label = item.get('order_label') or chr(ord('A') + idx)
+                ContestProblem.objects.create(
+                    contest=contest,
+                    problem=problem,
+                    order=item.get('order', idx),
+                    order_label=order_label,
+                    xp_reward=DIFFICULTY_XP.get(problem.difficulty, 50),
+                    points=DIFFICULTY_XP.get(problem.difficulty, 50),
+                )
+        return contest
 
 
 class ContestListSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
+    type = serializers.CharField(source='participation_type', read_only=True)
     participant_count = serializers.SerializerMethodField()
     problem_count = serializers.SerializerMethodField()
     is_registered = serializers.SerializerMethodField()
@@ -91,13 +116,13 @@ class ContestListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contest
         fields = [
-            'id', 'title', 'slug', 'contest_type', 'start_time',
-            'end_time', 'freeze_time', 'status', 'participant_count',
-            'problem_count', 'is_registered'
+            'id', 'title', 'slug', 'type', 'participation_type',
+            'start_time', 'end_time', 'status', 'participant_count',
+            'problem_count', 'is_registered',
         ]
 
     def get_status(self, obj):
-        return obj.status
+        return obj.display_status
 
     def get_participant_count(self, obj):
         return obj.registrations.count()
@@ -115,7 +140,7 @@ class ContestListSerializer(serializers.ModelSerializer):
 class UserNestedSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username']
+        fields = ['id', 'handle']
 
 
 class ContestDetailSerializer(ContestListSerializer):
@@ -128,5 +153,18 @@ class ContestDetailSerializer(ContestListSerializer):
 
     def get_problems(self, obj):
         request = self.context.get('request')
-        problems = obj.contest_problems.select_related('problem').order_by('order_label')
-        return ContestProblemSerializer(problems, many=True, context={'request': request, 'contest': obj}).data
+        problems = obj.contest_problems.select_related('problem').order_by('order', 'order_label')
+        return ContestProblemSerializer(
+            problems, many=True, context={'request': request, 'contest': obj},
+        ).data
+
+
+class ContestInviteSerializer(serializers.Serializer):
+    handle = serializers.CharField()
+
+    def validate(self, attrs):
+        try:
+            attrs['user'] = User.objects.get(handle=attrs['handle'])
+        except User.DoesNotExist:
+            raise serializers.ValidationError({'handle': 'Пользователь не найден'})
+        return attrs

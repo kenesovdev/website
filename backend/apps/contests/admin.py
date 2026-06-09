@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Contest, ContestProblem, ContestRegistration, ScoreboardSnapshot
+from .models import Contest, ContestInvite, ContestProblem, ContestProblemSolve, ContestRegistration, ScoreboardSnapshot
 
 
 class ContestProblemInline(admin.TabularInline):

@@ -41,4 +41,5 @@ export const createSubmission = (data: {
   problem: string;
   code: string;
   language: string;
+  contest_id?: number;
 }) => api.post<SubmissionDetail>('/submissions/', data);

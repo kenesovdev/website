@@ -5,9 +5,11 @@ import { logout } from '../api/authApi';
 import { useAuthStore } from '../store/authStore';
 
 const navLinks = [
-  { to: '/problems', label: 'Problems' },
-  { to: '/submissions', label: 'Submissions', authOnly: true },
-  { to: '/leaderboard', label: 'Leaderboard' },
+  { to: '/problems', label: 'Задачи' },
+  { to: '/contests', label: 'Соревнования', authOnly: true },
+  { to: '/posts', label: 'Посты', authOnly: true },
+  { to: '/submissions', label: 'Отправки', authOnly: true },
+  { to: '/leaderboard', label: 'Рейтинг' },
 ];
 
 export default function Navbar() {

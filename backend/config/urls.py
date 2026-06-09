@@ -11,4 +11,5 @@ urlpatterns = [
     path('api/v1/', include('apps.problems.urls.public_urls')),
     path('api/v1/', include('apps.submissions.urls')),
     path('api/v1/', include('apps.contests.urls')),
+    path('api/v1/', include('apps.posts.urls')),
 ]

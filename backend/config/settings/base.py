@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'apps.problems',
     'apps.submissions',
     'apps.contests',
+    'apps.posts',
 ]
 
 AUTH_USER_MODEL = 'users.CustomUser'

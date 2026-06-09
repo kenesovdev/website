@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { useState, useEffect } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { getProblem } from '../api/problemsApi';
@@ -42,6 +42,8 @@ function DetailSkeleton() {
 
 export default function ProblemDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  const [searchParams] = useSearchParams();
+  const contestId = searchParams.get('contest_id');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -105,6 +107,7 @@ export default function ProblemDetailPage() {
         problem: problem!.id,
         code,
         language,
+        ...(contestId ? { contest_id: Number(contestId) } : {}),
       });
     },
     onSuccess: (response) => {
