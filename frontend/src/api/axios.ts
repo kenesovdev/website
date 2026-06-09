@@ -15,10 +15,15 @@ interface RetryConfig extends InternalAxiosRequestConfig {
 let isRefreshing = false;
 let queue: Array<(token: string) => void> = [];
 
+const AUTH_COOKIE_ENDPOINTS = ['/auth/refresh/', '/auth/logout/'];
+
+const usesRefreshCookie = (url?: string) =>
+  Boolean(url && AUTH_COOKIE_ENDPOINTS.some((endpoint) => url.includes(endpoint)));
+
 api.interceptors.request.use(async (config) => {
   const { useAuthStore } = await import('../store/authStore');
   const token = useAuthStore.getState().accessToken;
-  if (token) {
+  if (token && !usesRefreshCookie(config.url)) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -32,7 +37,7 @@ api.interceptors.response.use(
       !original ||
       error.response?.status !== 401 ||
       original._retry ||
-      original.url?.includes('/auth/refresh/')
+      usesRefreshCookie(original.url)
     ) {
       return Promise.reject(error);
     }
